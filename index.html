@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EasyShop</title>
+  <style>
+    :root{ --accent:#06b6d4; --muted:#666; --card-bg:#fff; --glass:#f8fafc; }
+    *{ box-sizing:border-box; }
+    body{ font-family: Inter, Roboto, Arial, sans-serif; margin:0; background:#f4f6f8; color:#111; }
+    .header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:var(--glass); border-bottom:1px solid #e8eef2; position:sticky; top:0; z-index:5; }
+    .brand{ font-weight:700; cursor:pointer; display:flex; gap:8px; align-items:center }
+    .brand b{ color:var(--accent); }
+    .actions button{ margin-left:8px; padding:6px 10px; border-radius:6px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
+    .container{ padding:16px; max-width:1100px; margin:0 auto; }
+    .filters{ display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap; }
+    .filters input, .filters select{ padding:8px; border-radius:6px; border:1px solid #ddd; min-width:160px; }
+    .grid{ display:grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
+    .card{ background:var(--card-bg); border:1px solid #eee; border-radius:8px; padding:12px; display:flex; flex-direction:column; align-items:center; }
+    .card img{ width:120px; height:120px; object-fit:cover; border-radius:6px;}
+    .card h3{ margin:8px 0 6px; font-size:15px; text-align:center; }
+    .card p{ margin:0; font-size:13px; color:var(--muted); text-align:center; min-height:34px;}
+    .price{ margin:8px 0; font-weight:700; }
+    .card button{ padding:8px 10px; border-radius:6px; border:0; background:var(--accent); color:white; cursor:pointer; }
+    .footer{ text-align:center; padding:12px; color:var(--muted); }
+    /* cart modal */
+    .overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; z-index:40; }
+    .modal{ background:white; width:380px; max-width:95%; border-radius:10px; padding:14px; box-shadow:0 8px 24px rgba(0,0,0,0.12); }
+    .cart-item{ display:flex; justify-content:space-between; gap:8px; padding:8px 2px; border-bottom:1px dashed #eee; align-items:center; }
+    .cart-controls button{ margin-left:6px; padding:4px 8px; border-radius:6px; border:0; cursor:pointer; }
+    .cart-controls button:nth-child(1),
+    .cart-controls button:nth-child(2){ background:#eee; }
+    .cart-controls button:nth-child(3){ background:#f44336; color:#fff; }
+    .small{ font-size:13px; color:var(--muted); }
+    /* forms */
+    input[type="text"], input[type="email"], input[type="password"], textarea, input[type="number"]{
+      width:100%; padding:8px; border-radius:6px; border:1px solid #ddd; margin-bottom:8px;
+    }
+    .admin-grid{ display:flex; gap:8px; flex-wrap:wrap; }
+    .admin-card{ width:180px; border:1px solid #ddd; padding:8px; border-radius:8px; background:#fff; }
+    .row{ display:flex; gap:8px; align-items:center; }
+    .muted{ color:var(--muted); font-size:13px; }
+    @media (max-width:600px){
+      .filters{ flex-direction:column; align-items:stretch }
+      .grid{ grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="brand" onclick="goto('shop')">
+      <div style="width:28px;height:28px;border-radius:6px;background:var(--accent)"></div>
+      <div>
+        <span>Easy</span><b>Shop</b>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="small" id="welcomeText">Not signed in</div>
+      <div class="actions">
+        <button onclick="openCart()">Cart (<span id="cartCount">0</span>)</button>
+        <button onclick="goto('auth')">Sign in</button>
+        <button onclick="goto('admin')">Admin</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="container" id="main"></main>
+
+  <div class="footer">EasyShop — Demo (no real payments)</div>
+
+  <script>
+
+    // ---------- sample products ----------
+    const sampleProducts = [
+      {id:1, name:"Banana (1 dozen)", category:"Fruits", price:60, image:"https://www.pngplay.com/wp-content/uploads/5/Banana-Fruit-Tropical-Produce-Yellow-Snack-Free-PNG.png", desc:"Fresh bananas"},
+      {id:2, name:"Apple (1 kg)", category:"Fruits", price:180, image:"https://via.placeholder.com/150?text=Apple", desc:"Crisp apples"},
+      {id:3, name:"Aashirvaad Atta (5kg)", category:"Staples", price:420, image:"https://via.placeholder.com/150?text=Atta", desc:"Whole wheat flour"},
+      {id:4, name:"Milk 1L", category:"Dairy", price:60, image:"https://via.placeholder.com/150?text=Milk", desc:"Toned milk 1L"},
+      {id:5, name:"Paneer 200g", category:"Dairy", price:130, image:"https://via.placeholder.com/150?text=Paneer", desc:"Fresh cottage cheese"},
+      {id:6, name:"Rice 5kg", category:"Staples", price:520, image:"https://via.placeholder.com/150?text=Rice", desc:"Sona masuri"}
+    ];
+
+    // ---------- storage helpers ----------
+    function read(key, fallback = null){
+      try {
+        const v = localStorage.getItem(key);
+        return v ? JSON.parse(v) : fallback;
+      } catch(e){
+        return fallback;
+      }
+    }
+    function write(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+
+    // seed products
+    if(!read('bb_products')) write('bb_products', sampleProducts);
+
+    // ---------- app state ----------
+    let state = {
+      view: 'shop',
+      products: read('bb_products') || sampleProducts,
+      cart: read('bb_cart') || {},
+      user: read('bb_user') || null
+    };
+
+    const main = document.getElementById('main');
+    const cartCountEl = document.getElementById('cartCount');
+    const welcomeText = document.getElementById('welcomeText');
+
+    function refreshState(){
+      state.products = read('bb_products') || sampleProducts;
+      state.cart = read('bb_cart') || {};
+      state.user = read('bb_user') || null;
+      cartCountEl.innerText = Object.values(state.cart).reduce((s,i)=>s+i.qty,0) || 0;
+      welcomeText.innerText = state.user ? ("Hi, " + (state.user.email || 'User')) : 'Not signed in';
+    }
+
+    function goto(view){
+      state.view = view;
+      render();
+      window.scrollTo(0,0);
+    }
+
+    // ---------- helpers ----------
+    function escapeHtml(s){
+      return String(s)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;');
+    }
+
+    function toast(msg){
+      const t = document.createElement('div');
+      t.style.position = 'fixed';
+      t.style.bottom = '18px';
+      t.style.left = '50%';
+      t.style.transform = 'translateX(-50%)';
+      t.style.background = '#111';
+      t.style.color = '#fff';
+      t.style.padding = '10px 14px';
+      t.style.borderRadius = '8px';
+      t.style.zIndex = 60;
+      t.style.fontSize = '13px';
+      t.innerText = msg;
+      document.body.appendChild(t);
+      setTimeout(()=> t.style.opacity = 0, 2200);
+      setTimeout(()=> t.remove(), 3000);
+    }
+
+    // ---------- overlay ----------
+    function openOverlay(html){
+      closeOverlay(); // ensure only one
+      const overlay = document.createElement('div');
+      overlay.className = 'overlay';
+      overlay.innerHTML = `
+        <div class="modal">
+          <div class="modal-content">
+            ${html}
+          </div>
+        </div>
+      `;
+      overlay.addEventListener('click', (e)=>{
+        if(e.target === overlay) closeOverlay();
+      });
+      document.body.appendChild(overlay);
+    }
+
+    function closeOverlay(){
+      const existing = document.querySelector('.overlay');
+      if(existing) existing.remove();
+    }
+
+    // ---------- rendering main views ----------
+    function render(){
+      refreshState();
+      if(state.view === 'shop') renderShop();
+      else if(state.view === 'checkout') renderCheckout();
+      else if(state.view === 'auth') renderAuth();
+      else if(state.view === 'admin') renderAdmin();
+      else renderShop();
+    }
+
+    // ----- Shop -----
+    function renderShop(){
+      const products = state.products;
+      const categories = ['All', ...Array.from(new Set(products.map(p=>p.category)))];
+
+      main.innerHTML = `
+        <div class="filters">
+          <input id="q" placeholder="Search products..." />
+          <select id="cat">${categories.map(c=>`<option>${c}</option>`).join('')}</select>
+          <select id="sort">
+            <option value="">Sort</option>
+            <option value="low">Price: Low to High</option>
+            <option value="high">Price: High to Low</option>
+          </select>
+          <div style="margin-left:auto" class="muted">Products: ${products.length}</div>
+        </div>
+        <div id="grid" class="grid"></div>
+      `;
+      const grid = document.getElementById('grid');
+
+      function doFilter(){
+        const q = document.getElementById('q').value.trim().toLowerCase();
+        const cat = document.getElementById('cat').value;
+        const sort = document.getElementById('sort').value;
+        let filtered = products.filter(p=>{
+          if(cat !== 'All' && p.category !== cat) return false;
+          if(q && !p.name.toLowerCase().includes(q) && !(p.desc||'').toLowerCase().includes(q)) return false;
+          return true;
+        });
+        if(sort === 'low') filtered.sort((a,b)=>a.price-b.price);
+        if(sort === 'high') filtered.sort((a,b)=>b.price-a.price);
+        grid.innerHTML = filtered.map(p => `
+          <div class="card">
+            <img src="${escapeHtml(p.image||'https://via.placeholder.com/150')}" alt="${escapeHtml(p.name)}" />
+            <h3>${escapeHtml(p.name)}</h3>
+            <p>${escapeHtml(p.desc||'')}</p>
+            <div class="price">₹${p.price}</div>
+            <div style="display:flex;gap:6px">
+              <button onclick="addToCart(${p.id})">Add</button>
+              <button onclick="showProduct(${p.id})" style="background:#eee;color:#111">Details</button>
+            </div>
+          </div>
+        `).join('') || '<div class="muted">No products found</div>';
+      }
+
+      document.getElementById('q').addEventListener('input', doFilter);
+      document.getElementById('cat').addEventListener('change', doFilter);
+      document.getElementById('sort').addEventListener('change', doFilter);
+      doFilter();
+    }
+
+    // ----- Product details -----
+    function showProduct(id){
+      const p = (state.products||[]).find(x=>x.id==id);
+      if(!p) return alert('Product not found');
+      openOverlay(`
+        <div style="display:flex;gap:12px">
+          <img src="${escapeHtml(p.image)}" style="width:140px;height:140px;object-fit:cover;border-radius:8px" />
+          <div style="flex:1">
+            <h3 style="margin:0">${escapeHtml(p.name)}</h3>
+            <div class="small" style="margin:6px 0">${escapeHtml(p.category)} • ₹${p.price}</div>
+            <p class="muted">${escapeHtml(p.desc||'')}</p>
+            <div style="margin-top:12px">
+              <button onclick="addToCart(${p.id}); closeOverlay()">Add to cart</button>
+              <button onclick="closeOverlay()" style="background:#eee;color:#000;margin-left:8px">Close</button>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+
+    // ----- Cart -----
+    function addToCart(id){
+      const cart = read('bb_cart') || {};
+      const p = (state.products||[]).find(x=>x.id==id);
+      if(!p) return alert('Product not found');
+      if(!cart[id]) cart[id] = {...p, qty:0};
+      cart[id].qty += 1;
+      write('bb_cart', cart);
+      refreshState();
+      toast('Added to cart');
+    }
+
+    function openCart(){
+      const cart = read('bb_cart') || {};
+      const items = Object.values(cart);
+      const total = items.reduce((s,i)=>s + i.qty*i.price, 0);
+
+      const itemsHtml = items.map(it => `
+        <div class="cart-item">
+          <div style="flex:1">
+            <div style="font-weight:600">${escapeHtml(it.name)}</div>
+            <div class="small">₹${it.price} x ${it.qty} = ₹${it.qty*it.price}</div>
+          </div>
+          <div class="cart-controls">
+            <button onclick="changeCartQty(${it.id}, -1)">-</button>
+            <button onclick="changeCartQty(${it.id}, 1)">+</button>
+            <button onclick="removeFromCart(${it.id})">Remove</button>
+          </div>
+        </div>
+      `).join('');
+
+      openOverlay(`
+        <h3>Cart</h3>
+        ${items.length ? itemsHtml : '<div class="muted">Cart is empty</div>'}
+        <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center">
+          <div><b>Total:</b> ₹${total}</div>
+          <div>
+            <button onclick="closeOverlay()">Close</button>
+            <button onclick="checkoutFromCart()" ${items.length ? '' : 'disabled'} style="margin-left:8px">Checkout</button>
+          </div>
+        </div>
+      `);
+    }
+
+    function changeCartQty(id, delta){
+      const cart = read('bb_cart') || {};
+      if(!cart[id]) return;
+      cart[id].qty += delta;
+      if(cart[id].qty <= 0) delete cart[id];
+      write('bb_cart', cart);
+      refreshState();
+      // re-open cart to reflect changes
+      openCart();
+    }
+
+    function removeFromCart(id){
+      const cart = read('bb_cart') || {};
+      delete cart[id];
+      write('bb_cart', cart);
+      refreshState();
+      openCart();
+    }
+
+    function checkoutFromCart(){
+      closeOverlay();
+      goto('checkout');
+    }
+
+    // ----- Checkout -----
+    function renderCheckout(){
+      const cart = read('bb_cart') || {};
+      const items = Object.values(cart);
+      const total = items.reduce((s,i)=>s + i.qty*i.price, 0);
+
+      main.innerHTML = `
+        <div style="max-width:700px;margin:0 auto;background:#fff;padding:16px;border-radius:8px">
+          <h2>Checkout</h2>
+          ${ items.length ? `
+            <div class="muted">You have ${items.length} item(s) in cart. Total: ₹${total}</div>
+            <div style="margin-top:12px">
+              <input id="cname" placeholder="Full name" />
+              <input id="cphone" placeholder="Phone (optional)" />
+              <textarea id="caddr" placeholder="Delivery address"></textarea>
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button onclick="goto('shop')">Back</button>
+                <button onclick="placeOrder()">Place order</button>
+              </div>
+            </div>
+          ` : `<div class="muted">Your cart is empty. <button onclick="goto('shop')">Go shopping</button></div>`}
+        </div>
+      `;
+    }
+
+    function placeOrder(){
+      const name = document.getElementById('cname').value.trim();
+      const addr = document.getElementById('caddr').value.trim();
+      if(!name || !addr) return alert('Enter name and address');
+
+      const cart = read('bb_cart') || {};
+      const items = Object.values(cart);
+      if(!items.length) return alert('Cart is empty');
+
+      const total = items.reduce((s,i)=>s + i.qty*i.price, 0);
+      const orders = read('bb_orders') || [];
+      orders.push({ id: Date.now(), name, address:addr, items, total, date: new Date().toISOString() });
+      write('bb_orders', orders);
+      localStorage.removeItem('bb_cart');
+      refreshState();
+      toast('Order placed (mock). Thank you!');
+      goto('shop');
+    }
+
+    // ----- Auth -----
+    function renderAuth(){
+      main.innerHTML = `
+        <div style="max-width:420px;margin:0 auto;background:#fff;padding:16px;border-radius:8px">
+          <h2 id="authTitle">Sign in</h2>
+          <input id="email" placeholder="Email" />
+          <input id="password" placeholder="Password" type="password"/>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="toggleAuthMode()">Switch to Register</button>
+            <button onclick="login()">Sign in</button>
+          </div>
+        </div>
+      `;
+      main.dataset.authMode = 'login';
+    }
+
+    function toggleAuthMode(){
+      const mode = (main.dataset.authMode || 'login') === 'login' ? 'register' : 'login';
+      main.dataset.authMode = mode;
+      const title = document.getElementById('authTitle');
+      const switchBtn = document.querySelector('button[onclick="toggleAuthMode()"]');
+      const signBtn = document.querySelector('button[onclick="login()"],button[onclick="register()"]');
+
+      if(mode === 'register'){
+        title.innerText = 'Register';
+        switchBtn.innerText = 'Switch to Sign in';
+        signBtn.innerText = 'Register';
+        signBtn.setAttribute('onclick','register()');
+      } else {
+        title.innerText = 'Sign in';
+        switchBtn.innerText = 'Switch to Register';
+        signBtn.innerText = 'Sign in';
+        signBtn.setAttribute('onclick','login()');
+      }
+    }
+
+    function register(){
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      if(!email || !password) return alert('Enter email and password');
+      const users = read('bb_users') || [];
+      if(users.find(u=>u.email===email)) return alert('Email exists');
+      users.push({ email, password, created: new Date().toISOString() });
+      write('bb_users', users);
+      write('bb_user', { email });
+      toast('Registered & signed in');
+      goto('shop');
+    }
+
+    function login(){
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const users = read('bb_users') || [];
+      if(users.find(u=>u.email===email && u.password===password)){
+        write('bb_user', { email });
+        toast('Signed in');
+        goto('shop');
+      } else alert('Invalid credentials');
+    }
+
+    // ----- Admin -----
+    function renderAdmin(){
+      main.innerHTML = `
+        <div style="max-width:1000px;margin:0 auto">
+          <div style="display:flex;gap:12px;align-items:center;justify-content:space-between">
+            <h2>Admin panel</h2>
+            <div>
+              <input id="adminPass" placeholder="Admin password" style="padding:8px;border-radius:6px;border:1px solid #ddd" />
+              <button onclick="adminEnter()">Enter</button>
+            </div>
+          </div>
+          <div id="adminContent" style="margin-top:12px"></div>
+        </div>
+      `;
+    }
+
+    function adminEnter(){
+      const pass = document.getElementById('adminPass').value;
+      if(pass !== 'admin123') return alert('Wrong password (demo: admin123)');
+      const content = document.getElementById('adminContent');
+      const products = read('bb_products') || [];
+      content.innerHTML = `
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onclick="adminStartAdd()">Add product</button>
+          <button onclick="goto('shop')">Back to shop</button>
+        </div>
+        <div class="admin-grid" style="margin-top:12px">
+          ${products.map(p=>`
+            <div class="admin-card">
+              <img src="${escapeHtml(p.image)}" style="width:100%;height:100px;object-fit:cover;border-radius:6px" />
+              <div style="font-weight:600;margin-top:6px">${escapeHtml(p.name)}</div>
+              <div class="small">₹${p.price} • ${escapeHtml(p.category)}</div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <button onclick="adminStartEdit(${p.id})">Edit</button>
+                <button onclick="adminDelete(${p.id})">Delete</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div id="adminForm" style="margin-top:12px"></div>
+      `;
+    }
+
+    function adminFormHtml(p = {name:'',category:'',price:0,image:'',desc:''}){
+      return `
+        <div style="background:#fff;padding:12px;border-radius:8px">
+          <h3>${p.id ? 'Edit' : 'Add'} product</h3>
+          <input id="pf_name" placeholder="Name" value="${escapeHtml(p.name)}" />
+          <input id="pf_category" placeholder="Category" value="${escapeHtml(p.category)}" />
+          <input id="pf_price" placeholder="Price" type="number" value="${p.price||0}" />
+          <input id="pf_image" placeholder="Image URL" value="${escapeHtml(p.image||'https://via.placeholder.com/150')}" />
+          <textarea id="pf_desc" placeholder="Description">${escapeHtml(p.desc||'')}</textarea>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="document.getElementById('adminForm').innerHTML=''">Cancel</button>
+            <button onclick="adminSave(${p.id||0})">Save</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function adminStartAdd(){
+      document.getElementById('adminForm').innerHTML = adminFormHtml();
+    }
+
+    function adminStartEdit(id){
+      const p = (read('bb_products')||[]).find(x=>x.id==id);
+      if(!p) return alert('Not found');
+      document.getElementById('adminForm').innerHTML = adminFormHtml(p);
+    }
+
+    function adminSave(id){
+      const name = document.getElementById('pf_name').value.trim();
+      const category = document.getElementById('pf_category').value.trim();
+      const price = Number(document.getElementById('pf_price').value || 0);
+      const image = document.getElementById('pf_image').value.trim() || 'https://via.placeholder.com/150';
+      const desc = document.getElementById('pf_desc').value.trim();
+      if(!name || !category) return alert('Name and category required');
+      const products = read('bb_products') || [];
+      if(id && id !== 0){
+        const next = products.map(p => p.id === id ? ({ ...p, name, category, price, image, desc }) : p);
+        write('bb_products', next);
+      } else {
+        const newP = { id: Date.now(), name, category, price, image, desc };
+        products.push(newP);
+        write('bb_products', products);
+      }
+      toast('Saved');
+      adminEnter();
+      render();
+    }
+
+    function adminDelete(id){
+      if(!confirm('Delete product?')) return;
+      const products = (read('bb_products') || []).filter(p=>p.id !== id);
+      write('bb_products', products);
+      toast('Deleted');
+      adminEnter();
+      render();
+    }
+
+    // ---------- boot ----------
+    refreshState();
+    render();
+
+    // expose for inline handlers
+    window.goto = goto;
+    window.addToCart = addToCart;
+    window.showProduct = showProduct;
+    window.openCart = openCart;
+    window.changeCartQty = changeCartQty;
+    window.removeFromCart = removeFromCart;
+    window.checkoutFromCart = checkoutFromCart;
+    window.placeOrder = placeOrder;
+    window.renderAuth = renderAuth;
+    window.toggleAuthMode = toggleAuthMode;
+    window.login = login;
+    window.register = register;
+    window.renderAdmin = renderAdmin;
+    window.adminEnter = adminEnter;
+    window.adminStartAdd = adminStartAdd;
+    window.adminStartEdit = adminStartEdit;
+    window.adminSave = adminSave;
+    window.adminDelete = adminDelete;
+    window.closeOverlay = closeOverlay;
+  </script>
+</body>
+</html>
